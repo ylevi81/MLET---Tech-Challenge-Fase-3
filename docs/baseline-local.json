@@ -1,0 +1,27 @@
+{
+  "generated_at": "2026-09-12T20:18:37.508625+00:00",
+  "target_url": "http://127.0.0.1:8765/predict",
+  "mode": "sequential",
+  "warmup_requests": 10,
+  "measured_requests": 100,
+  "client_latency": {
+    "min_ms": 5.223,
+    "mean_ms": 18.333,
+    "p50_ms": 16.451,
+    "p95_ms": 33.694,
+    "p99_ms": 34.746,
+    "max_ms": 35.971
+  },
+  "throughput_requests_per_second": 54.206,
+  "classifications": {
+    "general pathological conditions": 100
+  },
+  "server_inference_latency": {
+    "min_ms": 1.915,
+    "mean_ms": 4.008,
+    "p50_ms": 3.898,
+    "p95_ms": 5.869,
+    "p99_ms": 6.491,
+    "max_ms": 7.609
+  }
+}
