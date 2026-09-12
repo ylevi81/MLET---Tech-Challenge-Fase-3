@@ -11,7 +11,6 @@ from datetime import UTC, datetime, timedelta
 
 from airflow.decorators import dag, task
 
-
 DAG_ID = "train_medical_abstracts_classifier"
 DATASET_HANDLE = "saharalaa/medical-abstracts-tc-corpus"
 TRAIN_SCHEDULE = os.environ.get("AIRFLOW_TRAIN_SCHEDULE") or None

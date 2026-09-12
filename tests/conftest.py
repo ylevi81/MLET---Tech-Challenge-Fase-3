@@ -5,7 +5,6 @@ from pathlib import Path
 
 import pytest
 
-
 LABELS = {
     1: "neoplasms",
     2: "digestive system diseases",
@@ -90,4 +89,3 @@ def trained_bundle(trained_artifacts: tuple[Path, Path, dict[str, object]]) -> d
     from medical_triage.model import load_artifact
 
     return load_artifact(trained_artifacts[0])
-

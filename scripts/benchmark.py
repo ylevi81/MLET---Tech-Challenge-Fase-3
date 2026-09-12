@@ -17,7 +17,6 @@ from pathlib import Path
 from statistics import fmean
 from typing import Any
 
-
 DEFAULT_TEXT = (
     "The patient presented with persistent chest discomfort and shortness of breath. "
     "Electrocardiography and laboratory testing were requested for further evaluation."
