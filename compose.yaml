@@ -1,0 +1,19 @@
+services:
+  api:
+    build:
+      context: .
+    environment:
+      MEDICAL_TRIAGE_MODEL_PATH: /app/artifacts/model.joblib
+      METRICS_PATH: /app/artifacts/metrics.json
+      TRAIN_IF_MISSING: "1"
+      KAGGLEHUB_CACHE: /home/appuser/.cache/kagglehub
+    ports:
+      - "8000:8000"
+    volumes:
+      - model-artifacts:/app/artifacts
+      - kaggle-cache:/home/appuser/.cache/kagglehub
+    restart: unless-stopped
+
+volumes:
+  model-artifacts:
+  kaggle-cache:
