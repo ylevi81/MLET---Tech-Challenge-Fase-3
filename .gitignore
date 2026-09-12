@@ -1,0 +1,48 @@
+# Python environments and bytecode
+.venv/
+venv/
+__pycache__/
+*.py[cod]
+*.egg-info/
+build/
+dist/
+
+# Test, lint, and coverage output
+.pytest_cache/
+.ruff_cache/
+.coverage
+.coverage.*
+htmlcov/
+
+# Local configuration and credentials
+.env
+.env.*
+!.env.example
+.kaggle/
+.cache/kagglehub/
+kagglehub/
+
+# Downloaded corpora (fixtures under tests remain tracked)
+data/*
+!data/.gitkeep
+
+# Generated model and local measurements
+artifacts/*.joblib
+artifacts/metrics.json
+artifacts/benchmark.json
+artifacts/promotion.json
+!artifacts/.gitkeep
+
+# Airflow runtime state
+airflow/logs/
+airflow/*.db
+airflow/*.sqlite
+airflow/airflow.cfg
+airflow/webserver_config.py
+
+# Editors and operating systems
+.idea/
+.vscode/
+.DS_Store
+Thumbs.db
+
