@@ -33,6 +33,8 @@ artifacts/benchmark.json
 artifacts/promotion.json
 artifacts/*.onnx
 artifacts/optimization.json
+artifacts/http-*.json
+artifacts/stack-validation.json
 !artifacts/.gitkeep
 
 # Airflow runtime state

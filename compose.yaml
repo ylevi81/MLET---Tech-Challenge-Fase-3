@@ -4,16 +4,47 @@ services:
       context: .
     environment:
       MEDICAL_TRIAGE_MODEL_PATH: /app/artifacts/model.joblib
+      MEDICAL_TRIAGE_BACKEND: ${MEDICAL_TRIAGE_BACKEND:-onnx_int8}
       METRICS_PATH: /app/artifacts/metrics.json
       TRAIN_IF_MISSING: "1"
       KAGGLEHUB_CACHE: /home/appuser/.cache/kagglehub
     ports:
-      - "8000:8000"
+      - "127.0.0.1:8000:8000"
     volumes:
       - model-artifacts:/app/artifacts
       - kaggle-cache:/home/appuser/.cache/kagglehub
     restart: unless-stopped
 
+  prometheus:
+    image: prom/prometheus:v3.5.0
+    command:
+      - --config.file=/etc/prometheus/prometheus.yml
+      - --storage.tsdb.retention.time=15d
+    ports:
+      - "127.0.0.1:9090:9090"
+    volumes:
+      - ./monitoring/prometheus/prometheus.yml:/etc/prometheus/prometheus.yml:ro
+      - prometheus-data:/prometheus
+    restart: unless-stopped
+
+  grafana:
+    image: grafana/grafana:12.1.1
+    environment:
+      GF_SECURITY_ADMIN_USER: ${GRAFANA_ADMIN_USER:-admin}
+      GF_SECURITY_ADMIN_PASSWORD: ${GRAFANA_ADMIN_PASSWORD:-admin}
+      GF_USERS_ALLOW_SIGN_UP: "false"
+    ports:
+      - "127.0.0.1:3000:3000"
+    volumes:
+      - ./monitoring/grafana/provisioning:/etc/grafana/provisioning:ro
+      - ./monitoring/grafana/dashboards:/var/lib/grafana/dashboards:ro
+      - grafana-data:/var/lib/grafana
+    depends_on:
+      - prometheus
+    restart: unless-stopped
+
 volumes:
   model-artifacts:
   kaggle-cache:
+  prometheus-data:
+  grafana-data:
