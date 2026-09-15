@@ -66,9 +66,7 @@ def make_session(model_path: str | Path, *, threads: int = 1) -> ort.InferenceSe
     options.intra_op_num_threads = threads
     options.inter_op_num_threads = threads
     options.graph_optimization_level = ort.GraphOptimizationLevel.ORT_ENABLE_ALL
-    return ort.InferenceSession(
-        str(model_path), options, providers=["CPUExecutionProvider"]
-    )
+    return ort.InferenceSession(str(model_path), options, providers=["CPUExecutionProvider"])
 
 
 def export_onnx(pipeline, output_path: str | Path = DEFAULT_ONNX_PATH) -> Path:
@@ -261,7 +259,6 @@ def _probabilities_output_name(model: onnx.ModelProto) -> str:
     raise RuntimeError("probability output not found")
 
 
-
 def quantize(
     onnx_path: str | Path = DEFAULT_ONNX_PATH,
     int8_path: str | Path = DEFAULT_INT8_PATH,
@@ -384,9 +381,7 @@ def benchmark_latency(
                 start = time.perf_counter()
                 runner(batch)
                 timings.append((time.perf_counter() - start) * 1000)
-            results.setdefault(tag, {})[f"batch_{batch_size}"] = _summarise(
-                timings, batch_size
-            )
+            results.setdefault(tag, {})[f"batch_{batch_size}"] = _summarise(timings, batch_size)
 
     baseline = results.get("sklearn", {})
     for tag, per_batch in results.items():
@@ -411,6 +406,18 @@ def optimize_bundle(
 
     export_onnx(bundle["pipeline"], onnx_path)
     quantize(onnx_path, int8_path)
+    if "artifact_id" in bundle:
+        for path, backend in ((onnx_path, "onnx_fp32"), (int8_path, "onnx_int8")):
+            graph = onnx.load(str(path))
+            helper.set_model_props(
+                graph,
+                {
+                    "artifact_id": str(bundle["artifact_id"]),
+                    "class_ids": json.dumps([int(x) for x in bundle["label_binarizer"].classes_]),
+                    "backend": backend,
+                },
+            )
+            onnx.save(graph, str(path))
     report = verify_parity(bundle, texts, onnx_path=onnx_path, int8_path=int8_path)
 
     if report_path is not None:
@@ -491,9 +498,7 @@ def main(argv: list[str] | None = None) -> int:
                 "runs_per_measurement": arguments.runs,
                 "parity": parity,
                 "latency": latency,
-                "sklearn_model_mb": round(
-                    Path(arguments.model_path).stat().st_size / 1e6, 3
-                ),
+                "sklearn_model_mb": round(Path(arguments.model_path).stat().st_size / 1e6, 3),
             },
             ensure_ascii=False,
             indent=2,

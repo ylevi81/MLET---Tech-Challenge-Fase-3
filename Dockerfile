@@ -10,6 +10,12 @@ ENV PYTHONDONTWRITEBYTECODE=1 \
 
 WORKDIR /app
 
+# ONNX StringNormalizer requires this locale on Linux.
+RUN apt-get update \
+    && apt-get install -y --no-install-recommends locales \
+    && localedef -i en_US -f UTF-8 en_US.UTF-8 \
+    && rm -rf /var/lib/apt/lists/*
+
 COPY requirements.txt ./
 RUN python -m pip install --no-cache-dir -r requirements.txt
 
@@ -18,7 +24,8 @@ COPY src ./src
 RUN python -m pip install --no-cache-dir --no-deps .
 
 COPY scripts/container-entrypoint.sh /usr/local/bin/container-entrypoint
-RUN chmod 0755 /usr/local/bin/container-entrypoint \
+RUN sed -i 's/\r$//' /usr/local/bin/container-entrypoint \
+    && chmod 0755 /usr/local/bin/container-entrypoint \
     && useradd --create-home --uid 10001 appuser \
     && install -d -o appuser -g appuser /app/artifacts /home/appuser/.cache/kagglehub
 

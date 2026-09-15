@@ -17,4 +17,10 @@ if [ ! -s "$model_path" ]; then
   fi
 fi
 
+if [ "${MEDICAL_TRIAGE_BACKEND:-sklearn}" != "sklearn" ]; then
+  python -m medical_triage.serving \
+    --model-path "$model_path" \
+    --output-dir "$(dirname "$model_path")"
+fi
+
 exec "$@"
