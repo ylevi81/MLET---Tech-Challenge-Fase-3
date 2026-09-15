@@ -1,0 +1,26 @@
+{
+  "checked_at": "2026-09-15T01:38:25.050513+00:00",
+  "api_health": {
+    "status": "ok",
+    "service": "medical-abstracts-classifier",
+    "version": "0.1.0",
+    "model_loaded": true,
+    "inference_backend": "onnx_int8",
+    "artifact_id": "fb971211591b4698a422a6791ee360a3",
+    "labels": 5,
+    "error": null
+  },
+  "prometheus": {
+    "scrape_up": 1.0,
+    "successful_predictions": 80.0,
+    "validation_errors": 2.0,
+    "mean_seconds": 0.0021819082195101724,
+    "p95_seconds": 0.004795
+  },
+  "grafana": {
+    "dashboard_uid": "medical-api",
+    "panels": 6,
+    "provisioned": true,
+    "datasource_status": "OK"
+  }
+}

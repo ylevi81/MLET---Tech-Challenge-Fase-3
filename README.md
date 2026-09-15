@@ -1,6 +1,6 @@
 # Classificação multilabel de resumos médicos
 
-Projeto das etapas 1 e 2 do Tech Challenge de Machine Learning Engineering. A
+Projeto das etapas 1 a 4 do Tech Challenge de Machine Learning Engineering. A
 solução baixa o corpus público **Medical Abstracts TC Corpus**, reconstrói seus
 rótulos multilabel por resumo, treina um baseline clássico reproduzível e expõe
 inferência HTTP com FastAPI.
@@ -22,12 +22,14 @@ inferência HTTP com FastAPI.
 - métricas multilabel escritas somente por uma execução real de treinamento;
 - API FastAPI com `GET /health` e `POST /predict`;
 - Docker, Compose, benchmark HTTP e testes offline;
-- DAG do Airflow para download, treinamento e promoção de artefatos.
+- DAG do Airflow para download, treinamento e promoção de artefatos;
+- métricas HTTP com `prometheus_client`, Prometheus e dashboard Grafana provisionado;
 - exportação para ONNX Runtime, quantização dinâmica INT8 e comparação de
-  latência entre as três variantes, com verificação de paridade.
+  latência entre as três variantes, com verificação de paridade;
+- inferência na API com `sklearn`, `onnx_fp32` ou `onnx_int8`, mantendo o contrato multilabel.
 
-Monitoramento de produção, alertas, drift e retreinamento automático pertencem a
-etapas posteriores e não foram implementados aqui.
+O monitoramento HTTP está implementado na etapa 3. Alertas, drift e gatilhos de
+retreinamento baseados em métricas ainda não estão implementados.
 
 ## Dados e decisão multilabel
 
@@ -192,14 +194,21 @@ credenciais.
 docker build -t medical-abstracts-api .
 ```
 
-O Compose configura dois volumes nomeados: um para o cache do Kaggle e outro
-para os artefatos. No primeiro `up`, `TRAIN_IF_MISSING=1` permite que o entrypoint
-baixe e treine uma única vez antes de iniciar a API; reinícios reutilizam os
-volumes.
+O Compose configura volumes persistentes para cache do Kaggle, artefatos,
+Prometheus e Grafana. No primeiro `up`, `TRAIN_IF_MISSING=1` permite baixar e
+treinar uma vez. O entrypoint também exporta ONNX/INT8 quando ausentes ou de
+outro treinamento. Reinícios reutilizam os artefatos correspondentes.
+O backend padrão do Compose é `onnx_int8`; a execução local continua com
+`sklearn` até configurar `MEDICAL_TRIAGE_BACKEND`.
 
 ```bash
 docker compose up --build
 ```
+
+A stack usa o arquivo existente `compose.yaml` (nome reconhecido pelo Docker
+Compose). API: <http://localhost:8000/docs>; Prometheus: <http://localhost:9090>;
+Grafana: <http://localhost:3000> (acesso local inicial `admin` / `admin`).
+Consulte [o guia da etapa 3](docs/monitoramento.md) para gerar tráfego e abrir o dashboard.
 
 Para separar explicitamente treino e serving:
 
@@ -248,6 +257,23 @@ O throughput sequencial observado foi `54,206 req/s`. É um registro reproduzív
 do ambiente local e de uma entrada fixa, não um SLA, teste de carga concorrente
 ou promessa para hardware/rede diferentes.
 
+## Monitoramento e observabilidade (etapa 3)
+
+`GET /metrics` expõe `http_requests_total` e
+`http_request_duration_seconds` com labels `method`, `route` e `status_code`.
+O contador registra chamadas e o histograma mede duração HTTP em segundos,
+incluindo validação e envio da resposta. A coleta de métricas não entra nessas
+medidas; URLs inexistentes são agrupadas como `unmatched`. Textos de abstracts
+e identificadores de pacientes não são usados como labels.
+
+O Prometheus coleta a API a cada 5 segundos e o Grafana carrega automaticamente
+o dashboard **API médica — Monitoramento**, com disponibilidade da coleta,
+total de chamadas, requisições/s, latências média e p95 e status HTTP.
+
+- [Guia de execução e validação](docs/monitoramento.md)
+- [JSON do dashboard (entregável)](monitoring/grafana/dashboards/medical-api.json)
+- [Configuração do Prometheus](monitoring/prometheus/prometheus.yml)
+
 ## Otimização de latência (etapa 4)
 
 O artefato `joblib` é o baseline. A etapa 4 converte o mesmo pipeline treinado
@@ -262,9 +288,38 @@ O comando exporta, quantiza, verifica a paridade e mede a latência, gravando
 `artifacts/optimization.json`. Requer o extra `onnx`:
 `pip install -e ".[onnx]"`.
 
+### Inferência otimizada nos endpoints
+
+Os endpoints `/predict` e `/health` agora suportam os três runtimes. O
+`/health` informa `inference_backend`. O mesmo pós-processamento mantém
+probabilidades, limiar configurável, fallback para a classe mais provável,
+nomes das classes e identificação do treinamento.
+
+No Compose, `onnx_int8` já está selecionado. Para execução local em PowerShell:
+
+```powershell
+python -m medical_triage.serving --model-path artifacts/model.joblib --output-dir artifacts
+$env:MEDICAL_TRIAGE_BACKEND = "onnx_int8"
+uvicorn medical_triage.api:app --host 0.0.0.0 --port 8000
+```
+
+O `joblib` continua necessário para os metadados e o mapeamento de classes;
+com ONNX selecionado, as probabilidades são calculadas pela sessão ONNX Runtime.
+Cada grafo registra o `artifact_id`, a ordem das classes e o backend. Arquivos
+ausentes ou incompatíveis deixam a API não pronta (503), sem troca silenciosa
+para sklearn. O processo carrega o modelo uma vez; após promover outro
+treinamento, reinicie a API.
+
+Artefatos anteriores à etapa 4, com `strip_accents="unicode"`, precisam ser
+retreinados com o código atual antes da exportação. Veja
+[o guia da etapa 4](docs/otimizacao.md) para migração, seleção de runtime e
+comparação HTTP entre backends.
+
 ### Resultado medido
 
-Latência por chamada, média de 400 execuções, `intra_op_num_threads=1`:
+Registro anterior de latência local por chamada, média de 400 execuções,
+`intra_op_num_threads=1`. Estes valores não medem HTTP nem o overhead de
+monitoramento; o ganho no serviço precisa de um benchmark HTTP separado:
 
 | variante | batch 1 | p95 | ganho | tamanho |
 |---|---|---|---|---|
@@ -356,7 +411,7 @@ flowchart LR
     MWAA --> T["Task de treinamento batch"]
     T --> S3
 
-    API -. "logs/métricas em etapa futura" .-> CW["CloudWatch"]
+    API -. "integração AWS futura" .-> CW["CloudWatch"]
 ```
 
 - **ECS Fargate + ALB** foi escolhido para servir a aplicação Docker sem manter
@@ -382,8 +437,10 @@ artefato tornam ECS mais simples e previsível para este baseline.
 
 ```text
 .
-├── src/medical_triage/       # ingestão, modelo, treino e FastAPI
-├── scripts/                  # entrypoint e benchmark HTTP
+├── src/medical_triage/       # ingestão, treino, FastAPI, métricas e runtimes
+├── scripts/                  # entrypoint, benchmark HTTP e verificação da stack
+├── monitoring/               # Prometheus e Grafana (provisioning + dashboard JSON)
+├── docs/                     # guias das etapas 3/4 e evidências de execução
 ├── tests/                    # testes offline
 ├── airflow/                  # DAG e dependências da etapa 2
 ├── .github/workflows/ci.yml  # integração contínua
@@ -403,7 +460,7 @@ artefato tornam ECS mais simples e previsível para este baseline.
 - TF-IDF não compreende negação, temporalidade ou contexto como um especialista.
 - Probabilidade do classificador não é probabilidade de doença e precisa de
   calibração/validação externa para qualquer novo domínio.
-- O serviço não inclui monitoramento, auditoria clínica, explicabilidade validada,
+- O serviço não inclui monitoramento de drift, auditoria clínica, explicabilidade validada,
   autenticação nem gestão de consentimento.
 
 Referência do corpus original: [Medical-Abstracts-TC-Corpus](https://github.com/sebischair/Medical-Abstracts-TC-Corpus).

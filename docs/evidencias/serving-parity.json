@@ -1,0 +1,14 @@
+{
+  "onnx_fp32": {
+    "max_abs_probability_diff": 0.00044071522189925716,
+    "mean_abs_probability_diff": 3.01725027841448e-07,
+    "label_agreement": 1.0,
+    "size_mb": 5.165
+  },
+  "onnx_int8": {
+    "max_abs_probability_diff": 0.015704414749468598,
+    "mean_abs_probability_diff": 0.0024006779645310504,
+    "label_agreement": 0.99775,
+    "size_mb": 3.266
+  }
+}

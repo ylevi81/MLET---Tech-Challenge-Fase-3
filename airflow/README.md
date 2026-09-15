@@ -65,3 +65,14 @@ Ao final, o diretório configurado contém `model.joblib`, `metrics.json` e
 `promotion.json`. O modelo é um bundle que inclui o pipeline multilabel e o
 binarizador de rótulos; o manifesto é publicado por último e funciona como o
 marcador de uma promoção completa.
+
+## Integração com ONNX e monitoramento
+
+A DAG promove o Joblib; ela não publica grafos ONNX. Com o serving otimizado,
+reinicie a API após a promoção: o entrypoint exporta FP32/INT8 correspondentes
+ao novo `artifact_id`. O processo não recarrega modelos em memória automaticamente.
+Veja [etapa 4](../docs/otimizacao.md) para o fluxo de deploy.
+
+O Compose da raiz sobe API, Prometheus e Grafana. A instrumentação da
+[etapa 3](../docs/monitoramento.md) mede o tráfego HTTP da API; não mede as tasks
+do Airflow e não dispara retreinamento por drift ou alertas.
