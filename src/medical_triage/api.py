@@ -10,11 +10,14 @@ from threading import RLock
 from typing import Annotated, Any
 
 from fastapi import FastAPI, HTTPException
-from fastapi.responses import JSONResponse
+from fastapi.responses import JSONResponse, Response
+from prometheus_client import CONTENT_TYPE_LATEST, generate_latest
 from pydantic import BaseModel, Field, field_validator
 
 from medical_triage import __version__
 from medical_triage.model import load_model, predict_abstracts, validate_model_bundle
+from medical_triage.monitoring import HTTPMetrics, MetricsMiddleware
+from medical_triage.serving import configure_backend
 
 DEFAULT_MODEL_PATH = "artifacts/model.joblib"
 
@@ -61,6 +64,7 @@ class HealthResponse(BaseModel):
     service: str
     version: str
     model_loaded: bool
+    inference_backend: str = "sklearn"
     artifact_id: str | None = None
     labels: int | None = None
     error: str | None = None
@@ -69,13 +73,22 @@ class HealthResponse(BaseModel):
 class ModelStore:
     """Thread-safe holder for a read-only model bundle."""
 
-    def __init__(self, model_path: Path, bundle: dict[str, Any] | None = None) -> None:
+    def __init__(
+        self,
+        model_path: Path,
+        bundle: dict[str, Any] | None = None,
+        *,
+        backend: str = "sklearn",
+        onnx_path: Path,
+    ) -> None:
         self.model_path = model_path
+        self.backend = backend
+        self.onnx_path = onnx_path
         self._lock = RLock()
         self._bundle: dict[str, Any] | None = None
         self.error: str | None = None
         if bundle is not None:
-            self._bundle = validate_model_bundle(bundle)
+            self._bundle = configure_backend(validate_model_bundle(bundle), backend, onnx_path)
 
     @property
     def bundle(self) -> dict[str, Any] | None:
@@ -85,7 +98,9 @@ class ModelStore:
     def load(self) -> None:
         with self._lock:
             try:
-                self._bundle = load_model(self.model_path)
+                self._bundle = configure_backend(
+                    load_model(self.model_path), self.backend, self.onnx_path
+                )
                 self.error = None
             except Exception as exc:
                 self._bundle = None
@@ -96,13 +111,24 @@ def create_app(
     *,
     model_path: str | Path | None = None,
     bundle: dict[str, Any] | None = None,
+    backend: str | None = None,
+    onnx_path: str | Path | None = None,
 ) -> FastAPI:
     """Create an application; tests may inject a validated in-memory bundle."""
 
     configured_path = Path(
         model_path or os.environ.get("MEDICAL_TRIAGE_MODEL_PATH", DEFAULT_MODEL_PATH)
     ).expanduser()
-    store = ModelStore(configured_path, bundle=bundle)
+    configured_backend = backend or os.environ.get("MEDICAL_TRIAGE_BACKEND", "sklearn")
+    default_onnx = "model_int8.onnx" if configured_backend == "onnx_int8" else "model.onnx"
+    configured_onnx = Path(
+        onnx_path
+        or os.environ.get("MEDICAL_TRIAGE_ONNX_PATH", str(configured_path.with_name(default_onnx)))
+    ).expanduser()
+    store = ModelStore(
+        configured_path, bundle=bundle, backend=configured_backend, onnx_path=configured_onnx
+    )
+    metrics = HTTPMetrics()
 
     @asynccontextmanager
     async def lifespan(_: FastAPI):
@@ -117,6 +143,13 @@ def create_app(
         lifespan=lifespan,
     )
     application.state.model_store = store
+    application.add_middleware(MetricsMiddleware, metrics=metrics)
+
+    @application.get("/metrics", include_in_schema=False)
+    def prometheus_metrics() -> Response:
+        return Response(
+            generate_latest(metrics.registry), headers={"Content-Type": CONTENT_TYPE_LATEST}
+        )
 
     @application.get("/health", response_model=HealthResponse)
     def health() -> HealthResponse | JSONResponse:
@@ -127,6 +160,7 @@ def create_app(
                 service="medical-abstracts-classifier",
                 version=__version__,
                 model_loaded=False,
+                inference_backend=configured_backend,
                 error=store.error or "Model has not been loaded",
             )
             return JSONResponse(status_code=503, content=payload.model_dump())
@@ -135,6 +169,7 @@ def create_app(
             service="medical-abstracts-classifier",
             version=__version__,
             model_loaded=True,
+            inference_backend=configured_backend,
             artifact_id=str(current["artifact_id"]),
             labels=len(current["label_binarizer"].classes_),
         )
