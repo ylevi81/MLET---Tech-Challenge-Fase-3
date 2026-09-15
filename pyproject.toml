@@ -23,11 +23,21 @@ medical-triage = "medical_triage.cli:main"
 medical-triage-train = "medical_triage.train:main"
 
 [project.optional-dependencies]
+# Etapa 4: exportacao ONNX e quantizacao. Fora das dependencias principais
+# porque a API serve o artefato joblib; instale quando for otimizar.
+onnx = [
+  "onnx>=1.16,<2",
+  "onnxruntime>=1.18,<2",
+  "skl2onnx>=1.17,<2",
+]
 dev = [
   "httpx>=0.27,<1",
+  "onnx>=1.16,<2",
+  "onnxruntime>=1.18,<2",
   "pytest>=8.3,<9",
   "pytest-cov>=6,<7",
   "ruff>=0.8,<1",
+  "skl2onnx>=1.17,<2",
 ]
 
 [tool.setuptools.packages.find]

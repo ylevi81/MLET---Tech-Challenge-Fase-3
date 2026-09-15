@@ -31,6 +31,8 @@ artifacts/*.joblib
 artifacts/metrics.json
 artifacts/benchmark.json
 artifacts/promotion.json
+artifacts/*.onnx
+artifacts/optimization.json
 !artifacts/.gitkeep
 
 # Airflow runtime state
