@@ -23,6 +23,8 @@ inferência HTTP com FastAPI.
 - API FastAPI com `GET /health` e `POST /predict`;
 - Docker, Compose, benchmark HTTP e testes offline;
 - DAG do Airflow para download, treinamento e promoção de artefatos.
+- exportação para ONNX Runtime, quantização dinâmica INT8 e comparação de
+  latência entre as três variantes, com verificação de paridade.
 
 Monitoramento de produção, alertas, drift e retreinamento automático pertencem a
 etapas posteriores e não foram implementados aqui.
@@ -85,9 +87,14 @@ informativas que uma acurácia isolada.
 
 Uma execução real local, com o corpus baixado, agrupamento por texto,
 `random_state=42` e o split interno descrito acima produziu: subset accuracy
-`0,578807`, micro-F1 `0,790737`, macro-F1 `0,800366`, Jaccard por amostra
-`0,744026` e Hamming loss `0,111042`. Esses números registram aquela execução;
+`0,580142`, micro-F1 `0,791135`, macro-F1 `0,800715`, Jaccard por amostra
+`0,744694` e Hamming loss `0,110775`. Esses números registram aquela execução;
 não são métricas clínicas, comparação com o split oficial nem meta garantida.
+
+> Os valores anteriores (subset accuracy `0,578807`, micro-F1 `0,790737`) são de
+> antes da etapa 4, quando o vetorizador ainda usava `max_df=0.98`. A remoção
+> desse parâmetro — necessária para a exportação ONNX, ver etapa 4 — melhorou
+> levemente todas as métricas.
 
 ## Execução local
 
@@ -240,6 +247,76 @@ por uma execução real em 12/09/2026 contra Uvicorn em `localhost`: 10 warm-ups
 O throughput sequencial observado foi `54,206 req/s`. É um registro reproduzível
 do ambiente local e de uma entrada fixa, não um SLA, teste de carga concorrente
 ou promessa para hardware/rede diferentes.
+
+## Otimização de latência (etapa 4)
+
+O artefato `joblib` é o baseline. A etapa 4 converte o mesmo pipeline treinado
+para **ONNX Runtime** e aplica **quantização dinâmica INT8**, comparando a
+latência das três variantes sobre exatamente as mesmas entradas.
+
+```bash
+python -m medical_triage.optimize --dataset-dir data/raw --runs 400
+```
+
+O comando exporta, quantiza, verifica a paridade e mede a latência, gravando
+`artifacts/optimization.json`. Requer o extra `onnx`:
+`pip install -e ".[onnx]"`.
+
+### Resultado medido
+
+Latência por chamada, média de 400 execuções, `intra_op_num_threads=1`:
+
+| variante | batch 1 | p95 | ganho | tamanho |
+|---|---|---|---|---|
+| `sklearn` (baseline) | 0,730 ms | 0,833 ms | — | 5,07 MB |
+| `onnx_fp32` | 0,572 ms | 0,626 ms | **1,28×** | 5,17 MB |
+| **`onnx_int8`** | **0,533 ms** | **0,561 ms** | **1,37×** | **3,27 MB** |
+
+Paridade contra o scikit-learn: o fp32 concorda em **100%** dos rótulos
+(diferença média de probabilidade 3e-7) e o INT8 em **99,775%**.
+
+### O ganho vale só para batch 1
+
+| batch | sklearn | onnx_int8 | vencedor |
+|---|---|---|---|
+| 1 | 0,730 ms | **0,533 ms** | ONNX (1,37×) |
+| 8 | **1,619 ms** | 4,218 ms | sklearn |
+| 32 | **4,380 ms** | 19,036 ms | sklearn |
+
+Os operadores `Tokenizer`/`TfIdfVectorizer` do ONNX processam as strings linha
+a linha, enquanto o vetorizador do scikit-learn amortiza o lote em código C. O
+ganho do ONNX vem de eliminar o overhead por chamada do Python, que domina
+quando se processa **um abstract por requisição** — exatamente o regime da API.
+Se o sistema passar a processar lotes, o caminho correto volta a ser o joblib.
+
+### Três obstáculos de conversão, e o que foi feito
+
+**1. `strip_accents="unicode"` impedia a exportação.** O skl2onnx converte
+`CountVectorizer` apenas com `strip_accents=None`. A remoção de acentos passou
+para `data.strip_accents`, chamada dentro de `normalize_abstract`, antes do
+pipeline — os dois runtimes passam a ver o mesmo texto. Nenhum dos 14.438
+abstracts do corpus tem caractere não-ASCII, então as métricas não mudaram.
+
+**2. A quantização era um no-op silencioso.** `quantize_dynamic` só reescreve
+`MatMul`/`Gemm`/`Conv`/`LSTM`, mas o skl2onnx emite cada estimador one-vs-rest
+como `ai.onnx.ml.LinearClassifier`, que guarda os pesos em *atributos do nó*.
+Quantizar o grafo convertido devolvia um arquivo idêntico. `fuse_ovr_classifiers`
+funde as cinco cabeças em um único `MatMul + Add + Sigmoid`: uma chamada BLAS
+no lugar de cinco, metade dos pesos (a coluna da classe negativa era descartada
+por um `Slice` logo depois) e onze nós a menos.
+
+**3. `max_df=0.98` quebrava 11% do vocabulário no ONNX.** O parâmetro removia
+apenas dois unigramas úteis — `of` e `the` — mas deixava **11.422 bigramas**
+sem os tokens que os compõem. O ONNX não consegue formar um n-grama cujo token
+não está no pool, então esses bigramas ficavam permanentemente zerados: a
+diferença de probabilidade chegava a 0,30 e 0,9% dos rótulos divergiam.
+Removê-lo zerou a divergência e ainda melhorou as métricas
+(subset accuracy 0,578807 → 0,580142; micro-F1 0,790737 → 0,791135).
+
+Havia ainda duas divergências menores, ambas corrigidas no grafo: o tokenizador
+do ONNX mantinha tokens de um caractere que o `token_pattern` do scikit-learn
+descarta, corrompendo todo bigrama que os atravessasse; e `sublinear_tf` era
+exportado como `log(1 + tf)` quando o scikit-learn calcula `1 + log(tf)`.
 
 ## Airflow (etapa 2)
 
