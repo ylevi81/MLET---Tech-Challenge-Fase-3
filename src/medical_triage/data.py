@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import re
+import unicodedata
 from collections import Counter
 from dataclasses import asdict, dataclass
 from pathlib import Path
@@ -101,12 +102,30 @@ def validate_dataset_directory(dataset_dir: str | Path) -> dict[str, Path]:
     return resolved
 
 
+def strip_accents(value: str) -> str:
+    """Remove combining marks, reproducing TfidfVectorizer's ``strip_accents="unicode"``.
+
+    This lives here, ahead of the vectorizer, because ONNX cannot represent the
+    vectorizer's own accent folding: skl2onnx converts ``CountVectorizer`` only
+    when ``strip_accents=None``. Normalising before the pipeline keeps the
+    scikit-learn and ONNX paths byte-identical instead of letting them diverge
+    on accented input.
+
+    Measured on the corpus: none of its 14.438 abstracts contain a non-ASCII
+    character, so this is a no-op for the published metrics. It is kept for
+    inputs the API may receive at inference time.
+    """
+
+    decomposed = unicodedata.normalize("NFKD", value)
+    return "".join(char for char in decomposed if not unicodedata.combining(char))
+
+
 def normalize_abstract(value: str) -> str:
     """Trim and collapse whitespace without changing the abstract's words."""
 
     if not isinstance(value, str):
         raise TypeError("medical_abstract must be a string")
-    normalized = re.sub(r"\s+", " ", value).strip()
+    normalized = strip_accents(re.sub(r"\s+", " ", value).strip())
     if not normalized:
         raise ValueError("medical_abstract cannot be blank")
     return normalized

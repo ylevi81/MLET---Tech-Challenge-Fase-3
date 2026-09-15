@@ -50,10 +50,15 @@ def build_pipeline(*, random_state: int = 42, max_features: int = DEFAULT_MAX_FE
                 "tfidf",
                 TfidfVectorizer(
                     lowercase=True,
-                    strip_accents="unicode",
+                    # strip_accents fica em normalize_abstract: skl2onnx so converte
+                    # CountVectorizer com strip_accents=None (ver data.strip_accents).
+                    strip_accents=None,
                     ngram_range=(1, 2),
                     min_df=2,
-                    max_df=0.98,
+                    # max_df=0.98 removia apenas os unigramas 'of' e 'the',
+                    # mas deixava 11.422 bigramas sem os tokens que os compoem.
+                    # O ONNX nao consegue formar um n-grama cujo token nao esta
+                    # no pool, o que quebrava 11% do vocabulario na exportacao.
                     max_features=max_features,
                     sublinear_tf=True,
                     dtype=np.float32,
